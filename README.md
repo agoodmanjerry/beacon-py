@@ -11,13 +11,11 @@ This is the **Python implementation** of the BEACON pipeline. For the R version,
 
 -   **Time Series Analysis** via `ts` class with comprehensive signal processing tools
 -   **Frequency Series Analysis** via `fs` class with FFT support (PyCBC-compatible normalization)
--   **Q-Transform** for time-frequency analysis with customizable parameters
 -   **Denoising** via seqARIMA modeling with Burg's AR estimation
 -   **Anomaly Detection** using robust IQR-based statistical thresholds
 -   **Clustering** of temporal outliers with DBSCAN
 -   **Statistical Evaluation** via Poisson and Exponential models
 -   **Coincidence Analysis** across multiple detectors
--   **Visualization** with colorblind-friendly Okabe-Ito palette
 -   Fully compatible with streaming or batch-based analysis
 -   **PyCBC integration** for gravitational wave data analysis workflows
 
