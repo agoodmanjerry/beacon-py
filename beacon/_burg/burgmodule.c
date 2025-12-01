@@ -51,14 +51,14 @@ static PyMethodDef BurgMethods[] = {
 // Module definition
 static struct PyModuleDef burgmodule = {
     PyModuleDef_HEAD_INIT,
-    "burg",
+    "_burg",
     NULL,
     -1,
     BurgMethods
 };
 
 // Init
-PyMODINIT_FUNC PyInit_burg(void) {
+PyMODINIT_FUNC PyInit__burg(void) {
     import_array();
     return PyModule_Create(&burgmodule);
 }

@@ -256,9 +256,9 @@ def plot_spectro(
         dir_colorbar (str): Deprecated - colorbar is always vertical.
         label_colorbar (str or None): Colorbar label. If None, auto-detects:
             - No transform: "Normalized energy"
-            - np.log10: r"$\log_{10}$(Normalized energy)"
-            - np.sqrt: r"$\sqrt{\text{Normalized energy}}$"
-            - np.log: r"$\ln$(Normalized energy)"
+            - np.log10: r"$\\log_{10}$(Normalized energy)"
+            - np.sqrt: r"$\\sqrt{\\text{Normalized energy}}$"
+            - np.log: r"$\\ln$(Normalized energy)"
             Default: None (auto-detect).
 
     Returns:
