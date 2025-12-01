@@ -1,0 +1,97 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel", "numpy>=1.20.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "beacon-py"
+version = "0.0.1"
+description = "BEACON: Burst Event Anomaly Clustering and Outlier Notification - A fully data-driven pipeline for detecting unmodeled gravitational wave transients"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "GPL-2.0-or-later"}
+authors = [
+    {name = "Sangin Kim", email = "kimsanginn@gmail.com"}
+]
+maintainers = [
+    {name = "Sangin Kim", email = "kimsanginn@gmail.com"}
+]
+keywords = [
+    "gravitational waves",
+    "time series",
+    "frequency series",
+    "Q-transform",
+    "signal processing",
+    "anomaly detection",
+    "burst detection",
+    "seqARIMA",
+    "DBSCAN",
+    "GW transients",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: C",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+    "numpy>=1.20.0",
+    "pandas>=1.3.0",
+    "matplotlib>=3.3.0",
+    "seaborn>=0.11.0",
+    "scipy>=1.7.0",
+    "polars>=0.15.0",
+    "h5py>=3.0.0",
+    "statsmodels>=0.13.0",
+    "scikit-learn>=1.0.0",
+    "requests>=2.25.0",
+    "cmap",
+    "cycler",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+    "black",
+    "flake8",
+    "mypy",
+    "ipython",
+    "jupyter",
+]
+pycbc = [
+    "pycbc",
+]
+
+[project.urls]
+Homepage = "https://github.com/OddThumb/beacon-py"
+Repository = "https://github.com/OddThumb/beacon-py"
+Issues = "https://github.com/OddThumb/beacon-py/issues"
+Documentation = "https://oddthumb.github.io/beacon/articles/"
+"R Version" = "https://github.com/OddThumb/beacon"
+
+[tool.setuptools]
+packages = ["beacon"]
+
+[tool.setuptools.package-data]
+beacon = ["_burg/*.c"]
+
+[tool.black]
+line-length = 88
+target-version = ['py38', 'py39', 'py310', 'py311']
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --cov=beacon --cov-report=term-missing"
