@@ -98,23 +98,7 @@ ts_obj.plot(title="My Signal")
 
 # Convert to frequency series (FFT)
 fs_obj = ts_obj.to_fs()
-fs_obj.plot(logf=True, logy=True)
-
-# Compute Q-transform spectrogram
-qt_obj = beacon.QT.QT(ts_obj, frange=(20, 500), qrange=(4, 64))
-qt_obj.plot()
-```
-
-Alternatively, you can use direct imports:
-
-```python
-from beacon import ts, QT
-import numpy as np
-
-# Create a time series
-data = np.random.randn(4096)
-ts_obj = ts(data, start=1000.0, sampling_freq=4096)
-ts_obj.plot()
+fs_obj.plot()
 ```
 
 ## Core Classes
@@ -129,7 +113,7 @@ ts_obj = beacon.ts(data, start=1000.0, sampling_freq=4096)
 ts_obj.plot()                    # Plot oscillogram
 ts_obj.to_fs()                   # Convert to frequency series (FFT)
 ts_obj.to_pycbc()                # Convert to PyCBC TimeSeries
-ts_obj.to_df()                   # Convert to pandas DataFrame
+ts_obj.to_df()                   # Convert to polars DataFrame
 ```
 
 ### Frequency Series (`fs`)
@@ -139,12 +123,47 @@ ts_obj.to_df()                   # Convert to pandas DataFrame
 fs_obj = ts_obj.to_fs()
 
 # Methods
-fs_obj.plot(logf=True, logy=True)  # Plot frequency series
-fs_obj.to_ts()                     # Convert back to time series (IFFT)
-fs_obj.freqs()                     # Get frequency axis
+fs_obj.plot()                    # Plot frequency series
+fs_obj.to_ts()                   # Convert back to time series (IFFT)
+fs_obj.freqs()                   # Get frequency axis
 ```
 
 ## Usage Example
+
+### Full Detection Pipeline
+
+```python
+# Python Example
+import beacon
+
+# Load GW strain data
+ts_H1 = beacon.IO.read_H5("H1.hdf5", sampling_freq=4096)
+ts_L1 = beacon.IO.read_H5("L1.hdf5", sampling_freq=4096)
+ts_dict = {"H1": ts_H1, "L1": ts_L1}
+
+# Convert to Rist (named list-like container)
+ts_list = beacon.Rist(ts_dict)
+
+# Data batch preparation
+batch_set = beacon.Pipe.batching_network(ts_list)
+
+# Configure pipeline
+cfg = beacon.Pipe.config_pipe()
+
+# Run detection pipeline
+result = beacon.Pipe.stream(batch_set=batch_set, arch_params=cfg)
+
+# In console:
+# 1-th batch:
+#   H1: λ_c=6.403, λ_a=3.333
+#   L1: λ_c=6.445, λ_a=3.337
+# 2-th batch:
+#   H1: λ_c=6.403, λ_a=3.333
+#   L1: λ_c=6.445, λ_a=3.337
+# ...
+```
+
+### Basic Signal Processing
 
 ```python
 import beacon
@@ -206,7 +225,7 @@ If you use only `seqarima` in your work, please cite:
 
 ## License
 
-This project is licensed under the GNU General Public License v2.0 or later (GPL-2.0+). See [LICENSE](LICENSE) for details.
+This project is licensed under the GNU General Public License v2.0 or later (GPL-2.0+).
 
 ## Contributing
 
@@ -216,4 +235,4 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 - This Python implementation is based on the original R version of BEACON
 - Burg's AR estimation algorithm adapted from R's `ar.burg` function
-- Compatible with PyCBC for gravitational wave data analysis
+- Compatible with PyCBC and GWpy for gravitational wave data analysis
