@@ -1,7 +1,7 @@
 # BEACON: Burst Event Anomaly Clustering and Outlier Notification (Python)
 
 [![License: GPL v2+](https://img.shields.io/badge/License-GPL%20v2+-blue.svg)](LICENSE)
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
 BEACON is a fully data-driven pipeline designed to detect unmodeled gravitational wave (GW) transients. By combining sequential autoregressive modeling ([seqARIMA](https://doi.org/10.1103/PhysRevD.109.102003)) and anomaly clustering, BEACON provides a low-latency and model-agnostic framework for robust burst detection.
 
@@ -55,7 +55,7 @@ pip install .
 
 ## Requirements
 
-- Python 3.8+
+- Python 3.10+
 - NumPy >= 1.20.0
 - C compiler (for building the Burg AR extension)
 

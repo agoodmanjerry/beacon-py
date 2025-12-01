@@ -7,7 +7,7 @@ name = "beacon-py"
 version = "0.0.1"
 description = "BEACON: Burst Event Anomaly Clustering and Outlier Notification - A fully data-driven pipeline for detecting unmodeled gravitational wave transients"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 license = {text = "GPL-2.0-or-later"}
 authors = [
     {name = "Sangin Kim", email = "kimsanginn@gmail.com"}
@@ -32,8 +32,6 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -87,7 +85,7 @@ beacon = ["_burg/*.c"]
 
 [tool.black]
 line-length = 88
-target-version = ['py38', 'py39', 'py310', 'py311']
+target-version = ['py310', 'py311', 'py312']
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
