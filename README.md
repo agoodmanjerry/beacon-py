@@ -141,7 +141,7 @@ ts_H1 = beacon.IO.read_H5("H1.hdf5", sampling_freq=4096)
 ts_L1 = beacon.IO.read_H5("L1.hdf5", sampling_freq=4096)
 ts_dict = {"H1": ts_H1, "L1": ts_L1}
 
-# Convert to Rist (named list-like container)
+# Convert to Rist (named list-like container inspired by list class in "R")
 ts_list = beacon.Rist(ts_dict)
 
 # Data batch preparation
