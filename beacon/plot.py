@@ -428,11 +428,8 @@ def plot_spectro(
         ax.tick_params(axis="y", left=False)
 
     if stack:
-        plt.close(fig)  # Prevent duplicate display in Jupyter
         return fig
     else:
-        plt.close(fig_spec)
-        plt.close(fig_osci)
         return fig_spec, fig_osci
 
 
