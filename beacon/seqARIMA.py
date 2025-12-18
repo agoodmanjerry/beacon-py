@@ -318,7 +318,7 @@ def burgar(
     # Normalize IC
     mic = np.nanmin(xic)
     xic_norm = np.where(np.isfinite(mic), xic - mic, np.where(xic == mic, 0, np.inf))
-    xic_dict = dict(zip(range(order_max + 1), xic_norm))
+    # xic_dict = dict(zip(range(order_max + 1), xic_norm))
     attr_ic = ic_label
 
     # Select order
@@ -364,7 +364,7 @@ def burgar(
             "var_pred": var_pred,
             "vars_pred": vars_pred,
             "x_mean": x_mean,
-            "ic": xic_dict,
+            "ic": xic_norm,  # xic_dict,
             "n_used": n_used,
             "order_max": order_max,
             "partialacf": partialacf,
@@ -374,6 +374,68 @@ def burgar(
             "asy_var_coef": None,
         }
     )
+
+
+def residual(x: Union[np.ndarray, Sequence[float]], ar: np.ndarray) -> np.ndarray:
+    """
+    Compute zero-phase AR residuals.
+
+    Calculates AR model residuals with zero-phase correction using FFT-based
+    phase adjustment. This function applies an AR filter causally, then corrects
+    for phase distortion in the frequency domain to produce zero-phase residuals.
+
+    Args:
+        x (array-like): Input time series data.
+        ar (np.ndarray): AR coefficients from an AR model fit.
+
+    Returns:
+        np.ndarray: Zero-phase corrected residuals with the same length as `x`.
+            The first `order` and last `order` values are set to NaN where
+            `order = len(ar)`.
+
+    Details:
+        The function performs the following steps:
+        1. Applies causal AR filter: constructs polynomial (1, -ar) and convolves
+        2. Fills NaN values with 0 for FFT computation
+        3. Computes phase response of AR coefficients in frequency domain
+        4. Corrects phase distortion by multiplying FFT of residuals with exp(-i * phase)
+        5. Transforms back to time domain and restores edge NaNs
+
+    See Also:
+        burgar, sar
+    """
+    x = np.asarray(x, dtype=np.float64).ravel()
+    ar = np.asarray(ar, dtype=np.float64).ravel()
+
+    # Construct AR coef vector: 1 - a_1 - a_2 - ...
+    a = np.r_[1.0, -ar]
+    order = len(ar)
+
+    # Faster than embed-based calculation of residual
+    # Causal convolution
+    resid = np.convolve(x, a, mode="same")
+    # Set first `order` values to NaN (edge effect)
+    resid[:order] = np.nan
+
+    # Copy of resid only for FFT input
+    resid_filled = resid.copy()
+    resid_filled[np.isnan(resid_filled)] = 0.0
+
+    # Phase response of AR coefs
+    n = len(x)
+    A_f = np.fft.fft(np.r_[a, np.zeros(n - len(a))])
+    phase_A = np.angle(A_f)
+
+    # Phase correction
+    Y_f = np.fft.fft(resid_filled)
+    Y_fp = Y_f * np.exp(-1j * phase_A)
+    y_p = np.real(np.fft.ifft(Y_fp))
+
+    # Refill NaN values at edges
+    y_p[:order] = np.nan
+    y_p[-order:] = np.nan
+
+    return y_p
 
 
 # Fit a single AR model and return residuals/features
