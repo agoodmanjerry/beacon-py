@@ -255,29 +255,45 @@ def burgar(
     """
 
     # Information criterion sub-functions
-    def AIC(order_max: int, vars_pred: np.ndarray, n_used: int, demean: bool = False) -> np.ndarray:
+    def AIC(
+        order_max: int, vars_pred: np.ndarray, n_used: int, demean: bool = False
+    ) -> np.ndarray:
         orders = np.arange(order_max + 1)
         return 2 * orders + n_used * np.log(vars_pred) + 2 * int(demean)
 
-    def BIC(order_max: int, vars_pred: np.ndarray, n_used: int, demean: bool = False) -> np.ndarray:
+    def BIC(
+        order_max: int, vars_pred: np.ndarray, n_used: int, demean: bool = False
+    ) -> np.ndarray:
         orders = np.arange(order_max + 1)
-        return orders * np.log(n_used) + n_used * np.log(vars_pred) + int(demean) * np.log(n_used)
+        return (
+            orders * np.log(n_used)
+            + n_used * np.log(vars_pred)
+            + int(demean) * np.log(n_used)
+        )
 
-    def FPE(order_max: int, vars_pred: np.ndarray, n_used: int, demean: bool = False) -> np.ndarray:
+    def FPE(
+        order_max: int, vars_pred: np.ndarray, n_used: int, demean: bool = False
+    ) -> np.ndarray:
         orders = np.arange(order_max + 1)
         k = orders + int(demean)
         return (n_used + k + 1) / (n_used - k - 1) * vars_pred
 
-    def AICc(order_max: int, vars_pred: np.ndarray, n_used: int, demean: bool = False) -> np.ndarray:
+    def AICc(
+        order_max: int, vars_pred: np.ndarray, n_used: int, demean: bool = False
+    ) -> np.ndarray:
         orders = np.arange(order_max + 1)
         k = orders + int(demean)
         return n_used * np.log(vars_pred) + 2 * k + (2 * k * (k + 1)) / (n_used - k - 1)
 
-    def KIC(order_max: int, vars_pred: np.ndarray, n_used: int, demean: bool = False) -> np.ndarray:
+    def KIC(
+        order_max: int, vars_pred: np.ndarray, n_used: int, demean: bool = False
+    ) -> np.ndarray:
         orders = np.arange(order_max + 1)
         return n_used * np.log(vars_pred) + 3 * orders + 3 * int(demean)
 
-    def AKICc(order_max: int, vars_pred: np.ndarray, n_used: int, demean: bool = False) -> np.ndarray:
+    def AKICc(
+        order_max: int, vars_pred: np.ndarray, n_used: int, demean: bool = False
+    ) -> np.ndarray:
         orders = np.arange(order_max + 1)
         k = orders + int(demean)
         return n_used * np.log(vars_pred) + 3 * k + (3 * k * (k + 1)) / (n_used - k - 1)
@@ -327,7 +343,9 @@ def burgar(
     }.get(ic)
 
     if ic_fun is None:
-        raise ValueError(f"Unknown ic: {ic}. Must be one of 'AIC', 'BIC', 'FPE', 'AICc', 'KIC', 'AKICc'")
+        raise ValueError(
+            f"Unknown ic: {ic}. Must be one of 'AIC', 'BIC', 'FPE', 'AICc', 'KIC', 'AKICc'"
+        )
 
     xic = ic_fun(order_max, vars_pred, n_used, demean)
 
@@ -405,7 +423,7 @@ def residual(x: Union[np.ndarray, Sequence[float]], ar: np.ndarray) -> np.ndarra
     ar = np.asarray(ar, dtype=np.float64).ravel()
 
     # Construct AR coef vector: 1 - a_1 - a_2 - ...
-    a = np.insert(-ar, 0, 1.0)
+    a = np.r_[1, -ar]
     order = len(ar)
 
     # Faster than embed-based calculation of residual
