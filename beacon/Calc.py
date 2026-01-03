@@ -189,6 +189,26 @@ def tukey_window(n: int, alpha: float) -> np.ndarray:
     return w
 
 
+def welch_window(n: int) -> np.ndarray:
+    """
+    Generate a Welch (parabolic) window.
+
+    Computes a Welch window of length n. The Welch window is a
+    parabolic curve that tapers smoothly to zero at the edges.
+
+    Args:
+        n (int): Length of the window (number of points).
+
+    Returns:
+        np.ndarray: Array of length n containing the Welch window values.
+    """
+    if n <= 1:
+        return np.ones(n)
+    m = np.arange(n)
+    mid = (n - 1) / 2
+    return 1 - ((m - mid) / mid) ** 2
+
+
 def cyclic(x: np.ndarray, n: int) -> np.ndarray:
     """
     Perform cyclic shift of array.

@@ -1,4 +1,6 @@
 import numpy as np
+from typing import Dict, Any
+
 
 # Inspect function content
 def inspect_func(func):
@@ -12,11 +14,8 @@ def inspect_func(func):
         None
     """
     import inspect
+
     print(inspect.getsource(func))
-
-
-import numpy as np
-from typing import Dict, Any
 
 
 class _SummaryStats(dict):
@@ -93,10 +92,11 @@ class Rist:
         names (list): List of names or None for unnamed elements.
         _name_to_index (dict): Mapping of names to indices for fast lookup.
     """
+
     def __init__(self, *args, **kwargs):
         """
         Initialize a Rist object.
-    
+
         Args:
             *args: Positional arguments (unnamed elements or a single dict).
             **kwargs: Keyword arguments (named elements).
@@ -109,8 +109,10 @@ class Rist:
         else:
             self.values = list(args) + list(kwargs.values())
             self.names = [None] * len(args) + list(kwargs.keys())
-    
-        self._name_to_index = {name: idx for idx, name in enumerate(self.names) if name is not None}
+
+        self._name_to_index = {
+            name: idx for idx, name in enumerate(self.names) if name is not None
+        }
 
     def _rebuild_index(self):
         """
@@ -143,7 +145,7 @@ class Rist:
             return self.values[idx]
         else:
             raise TypeError("Key must be int or str")
-        
+
     def __setitem__(self, key, value):
         """
         Set an element by index or name.
@@ -181,7 +183,7 @@ class Rist:
                 self._name_to_index[key] = len(self.values) - 1
         else:
             raise TypeError("Key must be int or str")
-    
+
     def __delitem__(self, key):
         """
         Delete item by name from a named Rist.
@@ -265,7 +267,7 @@ class Rist:
         new_prefix = parent_prefix + ("    " if is_last else "│   ")
 
         for i, (child_name, child_value) in enumerate(zip(self.names, self.values)):
-            is_child_last = (i == len(self.values) - 1)
+            is_child_last = i == len(self.values) - 1
             if child_name is None:
                 child_label = f"[{i}]"
             else:
@@ -277,20 +279,25 @@ class Rist:
                     child_value._str_with_indent(
                         name=child_label,
                         parent_prefix=new_prefix,
-                        is_last=is_child_last
+                        is_last=is_child_last,
                     )
                 )
             else:
                 # Leaf node
                 connector_child = "└── " if is_child_last else "├── "
-                line = new_prefix + f"{connector_child}.{child_label} ({type(child_value).__name__})"
+                line = (
+                    new_prefix
+                    + f"{connector_child}.{child_label} ({type(child_value).__name__})"
+                )
                 lines.append(line)
                 # Indent value lines
                 repr_lines = repr(child_value).splitlines()
                 for rline in repr_lines:
-                    lines.append(new_prefix + ("    " if is_child_last else "│   ") + rline)
+                    lines.append(
+                        new_prefix + ("    " if is_child_last else "│   ") + rline
+                    )
         return "\n".join(lines)
-    
+
     __repr__ = __str__
 
     def __add__(self, other):
@@ -308,21 +315,23 @@ class Rist:
         """
         if not isinstance(other, Rist):
             return NotImplemented
-    
+
         # Check duplicate names
         self_names_set = {n for n in self.names if n is not None}
         other_names_set = {n for n in other.names if n is not None}
         duplicates = self_names_set & other_names_set
-    
+
         if duplicates:
             dup_list = ", ".join(f"'{d}'" for d in duplicates)
             raise ValueError(f"Duplicate name(s) {dup_list} detected during addition.")
-    
+
         # Combine
         combined = Rist()
         combined.values = self.values + other.values
         combined.names = self.names + other.names
-        combined._name_to_index = {n: i for i, n in enumerate(combined.names) if n is not None}
+        combined._name_to_index = {
+            n: i for i, n in enumerate(combined.names) if n is not None
+        }
         return combined
 
     def append(self, *args, **kwargs):
@@ -348,7 +357,7 @@ class Rist:
             raise ValueError("Only one positional argument allowed.")
         if len(kwargs) > 1:
             raise ValueError("Only one keyword argument allowed.")
-    
+
         if args:
             obj = args[0]
             self.values.append(obj)
@@ -362,7 +371,7 @@ class Rist:
             self._name_to_index[name] = len(self.values) - 1
         else:
             raise ValueError("No object provided to append.")
-    
+
     def to_dict(self, flat: bool = False) -> dict:
         """
         Convert Rist object to dictionary.
@@ -397,7 +406,6 @@ class Rist:
             return Rist(**named)
         else:
             unnamed = [
-                val.copy() if isinstance(val, Rist) else val
-                for val in self.values
+                val.copy() if isinstance(val, Rist) else val for val in self.values
             ]
             return Rist(*unnamed)

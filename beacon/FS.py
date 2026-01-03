@@ -392,4 +392,4 @@ def asd(x, **kwargs):
     )
     result_fs.is_asd = True
 
-    return result_fs
+    return result_fs.real

@@ -25,13 +25,14 @@ from statsmodels.tools.sm_exceptions import (
 from sklearn.decomposition import PCA  # For PCA in EoA smoother
 
 # Scipy
-from scipy.signal import butter, firwin, filtfilt  # For band-pass filter
+from scipy.signal import butter, firwin, filtfilt, freqz, hilbert
 
 # Custom modules
 from . import _burg as burg  # For AR model estimation via Burg's method
 from .TS import *  # For 'ts' class (time series object)
 from .plot import message_verb  # For printing message if verbose=True
 from .etc import Rist  # For R-style list container
+from .Calc import welch_window  # For Bandpass filter consistent with R version
 
 # ================================================================
 
@@ -428,7 +429,7 @@ def residual(x: Union[np.ndarray, Sequence[float]], ar: np.ndarray) -> np.ndarra
 
     # Faster than embed-based calculation of residual
     # Causal convolution (one-sided filter, like R's stats::filter with sides=1)
-    resid = np.convolve(x, a, mode="full")[:len(x)]
+    resid = np.convolve(x, a, mode="full")[: len(x)]
     # Set first `order` values to NaN (edge effect)
     resid[:order] = np.nan
 
@@ -946,7 +947,9 @@ def BandPass(
 
     # Design filter
     if fir:
-        filt = firwin(numtaps=n + 1, cutoff=cutoff, pass_zero=ftype, window="hann")
+        # filt = firwin(numtaps=n + 1, cutoff=cutoff, pass_zero=ftype, window="hann")
+        filt = firwin(numtaps=n + 1, cutoff=cutoff, pass_zero=ftype, window="boxcar")
+        filt = filt * welch_window(n + 1)
         filt_out = filtfilt(filt, [1.0], ts_obj.data)
     else:
         b, a = butter(N=n, Wn=cutoff, btype=ftype)
@@ -1034,3 +1037,185 @@ def seqarima(
         out = BandPass(out, fl=fl, fu=fu, verbose=verbose)
 
     return out
+
+
+# seqARIMA Filtered Variance
+# Pipeline: Differencing -> AR filtering -> EoA -> BP filter (filtfilt) -> x_out
+def H_diff(f: np.ndarray, fs: float) -> np.ndarray:
+    """
+    H(f) for first-order differencing filter.
+
+    H_diff(f) = 1 - e^{-j2*pi*f/fs}
+
+    For d-th order differencing, use H_diff(f)^d.
+
+    Args:
+        f: Frequency array (Hz)
+        fs: Sampling frequency (Hz)
+
+    Returns:
+        Complex transfer function H(f)
+    """
+    f = np.asarray(f)
+    return 1 - np.exp(-1j * 2 * np.pi * f / fs)
+
+
+def H_eoa(f: np.ndarray, q_max: int, fs: float) -> np.ndarray:
+    """
+    H(f) for EoA (Ensemble of Averages) filter.
+
+    H_EoA(f) = (1/q_max) * sum_{q=1}^{q_max} H_MA,q(f)
+
+    Args:
+        f: Frequency array (Hz)
+        q_max: Maximum window size
+        fs: Sampling frequency (Hz)
+
+    Returns:
+        Complex transfer function H(f)
+    """
+    f = np.asarray(f)
+    H = np.zeros_like(f, dtype=complex)
+
+    for q in range(1, q_max + 1):
+        z = np.exp(-1j * 2 * np.pi * f / fs)
+        H_ma_q = (1 / q) * (1 - z**q) / (1 - z + 1e-30)
+        H += H_ma_q
+
+    H /= q_max
+    return H
+
+
+def H_bp(f: np.ndarray, fl: float, fu: float, order: int, fs: float) -> np.ndarray:
+    """
+    H(f) for BP filter (FIR with Welch window).
+
+    Args:
+        f: Frequency array (Hz)
+        fl: Lower cutoff (Hz)
+        fu: Upper cutoff (Hz)
+        order: Filter order
+        fs: Sampling frequency (Hz)
+
+    Returns:
+        Complex transfer function H(f)
+    """
+    nyq = fs / 2
+    numtaps = order + 1
+
+    filt = firwin(
+        numtaps=numtaps,
+        cutoff=[fl / nyq, fu / nyq],
+        pass_zero="bandpass",
+        window="boxcar",
+    )
+    filt = filt * welch_window(numtaps)
+
+    w_normalized = 2 * np.pi * np.asarray(f) / fs
+    _, H = freqz(filt, worN=w_normalized)
+
+    return H
+
+
+def seqarima_variance(seqarima_obj, psd_in=None) -> Rist:
+    fs = seqarima_obj.sampling_freq
+    n_freq = 10000
+
+    has_diff = hasattr(seqarima_obj, "diff_meta") and seqarima_obj.diff_meta is not None
+    has_ar = hasattr(seqarima_obj, "ar_meta") and seqarima_obj.ar_meta is not None
+    has_ma = hasattr(seqarima_obj, "ma_meta") and seqarima_obj.ma_meta is not None
+    has_bp = hasattr(seqarima_obj, "bp_meta") and seqarima_obj.bp_meta is not None
+
+    if has_bp:
+        fl, fu = seqarima_obj.bp_meta.cutoff
+        f = np.linspace(fl, fu, n_freq)
+    else:
+        f = np.linspace(1e-6, fs / 2, n_freq)
+    df = f[1] - f[0]
+
+    stages = []
+    details = {"sampling_freq": fs}
+    H_total_sq = np.ones_like(f)
+
+    # Step 1: Diff + AR (or PSD)
+    if has_ar:
+        var_ar = seqarima_obj.ar_meta.feature.filter(like="_var").iloc[0]
+        p = seqarima_obj.ar_meta.p_order
+        details["var_ar"] = var_ar
+        details["p"] = p
+
+        if has_diff:
+            d = seqarima_obj.diff_meta.d_order
+            details["d"] = d
+            stages.append(f"diff (d={d}, absorbed)")
+
+        stages.append("ar (whitened)")
+    else:
+        # If there is no AR process, the noise variance can not be simplified by a constant.
+        # Therefore, raw PSD is necessary to integrate transfer function over frequency range.
+        if psd_in is None:
+            raise ValueError("'psd_in' required when AR is not applied.")
+        S_in = np.interp(f, psd_in.freqs(), np.asarray(psd_in))
+        stages.append("psd (colored noise)")
+
+        if has_diff:
+            d = seqarima_obj.diff_meta.d_order
+            H_total_sq *= np.abs(H_diff(f, fs)) ** (2 * d)
+            stages.append(f"diff (d={d})")
+            details["d"] = d
+
+    # Step 2: EoA
+    if has_ma:
+        q_order = seqarima_obj.ma_meta.q_order
+        q_max = len(q_order) if hasattr(q_order, "__len__") else q_order
+        H_total_sq *= np.abs(H_eoa(f, q_max, fs)) ** 2
+        stages.append(f"eoa (q_max={q_max})")
+        details["q_max"] = q_max
+        details["ma_collector"] = seqarima_obj.ma_meta.ma_collector
+
+    # Step 3: BP
+    if has_bp:
+        fl, fu = seqarima_obj.bp_meta.cutoff
+        bp_order = getattr(seqarima_obj.bp_meta, "order", 512)
+        H_total_sq *= np.abs(H_bp(f, fl, fu, bp_order, fs)) ** 4
+        stages.append(f"bp ({fl}-{fu} Hz)")
+        details["fl"] = fl
+        details["fu"] = fu
+        details["bp_order"] = bp_order
+
+    # Final
+    if has_ar:
+        var_filtered = var_ar * (2 / fs) * np.sum(H_total_sq) * df
+    else:
+        var_filtered = np.sum(H_total_sq * S_in) * df
+
+    return Rist(
+        {"var_filtered": var_filtered, "stages": Rist(stages), "details": Rist(details)}
+    )
+
+
+def envelope_snr(seqarima_obj, psd_in=None) -> np.ndarray:
+    """
+    Compute envelope SNR time series from seqarima result.
+
+    SNR(t) = A^2(t) / (2 * var_filtered)
+
+    where A(t) is the envelope (magnitude of analytic signal).
+
+    The denominator 2 * var_filtered normalizes so that E[SNR] = 1 for noise only,
+    based on chi-squared distribution with 2 DOF.
+
+    Args:
+        seqarima_obj: seqarima result object with .data attribute
+        psd_in: Input PSD (fs object). Required only if AR is not applied.
+
+    Returns:
+        np.ndarray: SNR time series
+    """
+    result = seqarima_variance(seqarima_obj, psd_in)
+    sigma2 = result["var_filtered"]
+
+    analytic_signal = hilbert(seqarima_obj.data)
+    envelope = np.abs(analytic_signal)
+
+    return envelope**2 / (2 * sigma2)

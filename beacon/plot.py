@@ -115,6 +115,7 @@ def plot_freq(
     logf=False,
     logy=False,
     title=None,
+    ylabel=None,
     lw=0.5,
     ax=None,
     figsize=(8, 4),
@@ -152,7 +153,7 @@ def plot_freq(
         >>> ax = plot_freq(fs_obj, logf=True, logy=True)
 
         >>> # Plot PSD (after computing it)
-        >>> psd_fs = compute_psd(ts_obj)  # hypothetical PSD function
+        >>> psd_fs = psd(ts_obj)
         >>> ax = plot_freq(psd_fs, logf=True, logy=True)
     """
     # Get frequency axis and data
@@ -195,13 +196,16 @@ def plot_freq(
     # Labels
     ax.set_xlabel("Frequency (Hz)")
 
-    # Check if this is a PSD/ASD and set appropriate y-label
-    if hasattr(fs_obj, "is_psd") and fs_obj.is_psd:
-        ax.set_ylabel("PSD (1/Hz)")
-    elif hasattr(fs_obj, "is_asd") and fs_obj.is_asd:
-        ax.set_ylabel(r"ASD (1/$\sqrt{Hz}$)")
+    if ylabel is None:
+        # Check if this is a PSD/ASD and set appropriate y-label
+        if hasattr(fs_obj, "is_psd") and fs_obj.is_psd:
+            ax.set_ylabel("PSD (1/Hz)")
+        elif hasattr(fs_obj, "is_asd") and fs_obj.is_asd:
+            ax.set_ylabel(r"ASD (1/$\sqrt{Hz}$)")
+        else:
+            ax.set_ylabel("Amplitude")
     else:
-        ax.set_ylabel("Amplitude")
+        ax.set_ylabel(ylabel)
 
     if title:
         ax.set_title(title)
@@ -236,8 +240,6 @@ def plot_spectro(
     figsize_spec=(8, 3),
     figsize_osci=(8, 2),
     show_colorbar=True,
-    loc_colorbar="ul",
-    dir_colorbar="vertical",
     label_colorbar=None,
 ):
     """
