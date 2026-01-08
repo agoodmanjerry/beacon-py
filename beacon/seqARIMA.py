@@ -1218,4 +1218,7 @@ def envelope_snr(seqarima_obj, psd_in=None) -> np.ndarray:
     analytic_signal = hilbert(seqarima_obj.data)
     envelope = np.abs(analytic_signal)
 
-    return envelope**2 / (2 * sigma2)
+    snr_ts = np.sqrt(envelope**2 / (2 * sigma2))
+    snr_ts = tsref(snr_ts, seqarima_obj)
+    snr_ts.variance_result = result
+    return snr_ts

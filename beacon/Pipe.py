@@ -119,7 +119,7 @@ def batching(ts_obj: ts, t_bch: float = 1.0, has_DQ: bool = True) -> Rist:
     batch_len = int(t_bch * sampling_freq)
 
     batches = []
-    time_index = ts_obj.start + np.arange(total_len) / sampling_freq
+    # time_index = ts_obj.start + np.arange(total_len) / sampling_freq
 
     dq_df = None
     dq_level = None
@@ -151,7 +151,7 @@ def batching(ts_obj: ts, t_bch: float = 1.0, has_DQ: bool = True) -> Rist:
 
         batches.append(batch_ts)
 
-    names = [f"batch{str(i+1).zfill(4)}" for i in range(len(batches))]
+    names = [f"batch{str(i + 1).zfill(4)}" for i in range(len(batches))]
     out = Rist(dict(zip(names, batches)))
 
     # Attach general metadata to the Rist container
@@ -187,12 +187,14 @@ def batching_network(det_ts: Rist, t_bch: float = 1.0, has_DQ: bool = True) -> R
     result = transpose_Rist(batched_detectors)
 
     # Step 3: Copy meta of each detector
-    result.meta = Rist({})
-    for det in det_ts.names:
-        meta = det_ts[det].meta.copy()
-        if "DQ" in meta.names:
-            del meta["DQ"]
-        result.meta[det] = meta
+    # * This step is valid only for data loaded by `beacon.IO.read_H5()`
+    if hasattr(det_ts[0], "meta"):
+        result.meta = Rist({})
+        for det in det_ts.names:
+            meta = det_ts[det].meta.copy()
+            if "DQ" in meta.names:
+                del meta["DQ"]
+            result.meta[det] = meta
 
     return result
 
@@ -563,8 +565,11 @@ def config_pipe(replace: Optional[Rist] = None, show_config: bool = True) -> Ris
     Returns:
         Rist: Default configuration as a Rist object, including 'n_missed'.
     """
+
     # Default options
-    defopt = Rist(
+    t_batch = 1
+    conf = Rist(
+        tbch=t_batch,
         arch=arch,
         DQ="BURST_CAT2",
         # seqARIMA
@@ -574,7 +579,7 @@ def config_pipe(replace: Optional[Rist] = None, show_config: bool = True) -> Ris
         fl=32,
         fu=512,
         # Anomaly Detection
-        nmax=100,
+        nmax=100 * t_batch,
         scale=1.5,
         method="iqr",
         decomp=None,
@@ -588,21 +593,25 @@ def config_pipe(replace: Optional[Rist] = None, show_config: bool = True) -> Ris
         P_update=0.05,
     )
 
-    # Compute n_missed = (Mh, Mt) based on ARIMA loss size
-    defopt["n_missed"] = tr_overlap(defopt["d"], defopt["p"], defopt["q"], split=True)
-
     # Replace values with user-provided overrides
     if replace is not None:
         if not isinstance(replace, Rist):
             raise TypeError("replace must be a Rist.")
+
+        if "tbch" in replace.names:
+            conf["nmax"] = 100 * replace["tbch"]
+
         for name in replace.names:
-            defopt[name] = replace[name]
+            conf[name] = replace[name]
+
+    # Compute n_missed = (Mh, Mt) based on ARIMA loss size
+    conf["n_missed"] = tr_overlap(conf["d"], conf["p"], conf["q"], split=True)
 
     # Print configuration if requested
     if show_config:
-        print_config(defopt)
+        print_config(conf)
 
-    return defopt
+    return conf
 
 
 def print_config(config: Rist) -> None:
@@ -1421,7 +1430,9 @@ def pipe_net(
                 mean_func=(
                     arch_params["mean_func"] if "mean_func" in arch_params else har_mean
                 ),
-                p_col=f"P0_{arch_params['DQ']}",
+                p_col=(
+                    f"P0_{arch_params['DQ']}" if arch_params["DQ"] is not None else "P0"
+                ),
                 return_mode=2,
             )
         except Exception as e:
@@ -1464,7 +1475,7 @@ def stream(batch_set: Rist, arch_params: Rist, use_model: Rist = None) -> Rist:
 
     eta_lis = []
     for i in range(len(batch_set)):
-        print(f"{i+1}-th batch:")
+        print(f"{i + 1}-th batch:")
         start = time.time()
 
         res_net, prev_batch, coinc_lis = pipe_net(

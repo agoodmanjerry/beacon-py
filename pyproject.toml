@@ -78,7 +78,7 @@ Documentation = "https://oddthumb.github.io/beacon/articles/"
 "R Version" = "https://github.com/OddThumb/beacon"
 
 [tool.setuptools]
-packages = ["beacon"]
+packages = {find = {exclude = ["beacon._burg", "beacon._burg.*"]}}
 
 [tool.setuptools.package-data]
 beacon = ["_burg/*.c"]
