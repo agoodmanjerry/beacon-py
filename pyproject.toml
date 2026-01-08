@@ -81,7 +81,8 @@ Documentation = "https://oddthumb.github.io/beacon/articles/"
 packages = {find = {exclude = ["beacon._burg", "beacon._burg.*"]}}
 
 [tool.setuptools.package-data]
-beacon = ["_burg/*.c"]
+beacon = []
+#beacon = ["_burg/*.c"]
 
 [tool.black]
 line-length = 88
