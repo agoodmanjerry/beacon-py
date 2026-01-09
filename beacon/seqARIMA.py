@@ -36,10 +36,44 @@ from .Calc import welch_window  # For Bandpass filter consistent with R version
 
 # ================================================================
 
+# ________________________________________________________________
+# Correct shifted phase by filter
+def zero_phasing(data: np.ndarray, coef: np.ndarray) -> np.ndarray:
+    """
+    Apply zero-phase correction to filtered data.
+
+    Args:
+        data (np.ndarray): Filtered data without NaN values.
+        coef (np.ndarray): Filter coefficients.
+
+    Returns:
+        np.ndarray: Phase-corrected data with same length as input.
+    """
+    data = np.asarray(data, dtype=np.float64)
+    coef = np.asarray(coef, dtype=np.float64)
+    n = len(data)
+
+    # Phase response of filter
+    H_f = np.fft.fft(np.r_[coef, np.zeros(n - len(coef))])
+    phase = np.angle(H_f)
+
+    # Phase correction
+    X_f = np.fft.fft(data)
+    X_corrected = X_f * np.exp(-1j * phase)
+    out = np.real(np.fft.ifft(X_corrected))
+
+    return out
 
 # ________________________________________________________________
 # Differencing (Integrated process)
 
+# Simple calculation of difference filter coefficients; Binomial
+def diff_coef(d: int) -> np.ndarray:
+    """Compute (1 - B)^d coefficients."""
+    coef = np.array([1.0])
+    for _ in range(d):
+        coef = np.convolve(coef, [1, -1])
+    return coef
 
 # Split time series into segments and run KPSS tests for stationarity
 def check_stationary(ts_obj: ts, t_seg: float = 0.5) -> pd.DataFrame:
@@ -150,10 +184,6 @@ def auto_diff(
     return Rist({"d": d, "out": out_ts, "p_values": pval_history})
 
 
-from typing import Union
-import numpy as np
-
-
 # High-level wrapper to apply differencing manually or via KPSS-based auto differencing
 def Differencing(
     ts_obj: ts,
@@ -183,7 +213,7 @@ def Differencing(
         # KPSS-based auto differencing
         diff_res = auto_diff(ts_obj, t_seg=t_seg, verbose=verbose)
         message_verb(f"|> d={diff_res['d']} selected!", verb=verbose)
-        out_ts = diff_res.out
+        diff_ts = diff_res.out
         d_order = diff_res.d
         meta = Rist(method="auto", d_order=d_order, unbounded=True)
         if return_pvals:
@@ -192,7 +222,7 @@ def Differencing(
     elif isinstance(d, int) and d > 0:
         # Fixed differencing of order d
         out_data = np.diff(ts_obj.data, n=d)
-        out_ts = ts(
+        diff_ts = ts(
             out_data,
             start=ts_obj.start + d * (1 / ts_obj.sampling_freq),
             sampling_freq=ts_obj.sampling_freq,
@@ -202,13 +232,22 @@ def Differencing(
 
     elif d == 0:
         # Explicit no differencing
-        out_ts = ts_obj
+        diff_ts = ts_obj
         d_order = 0
         meta = Rist(method=None)
 
     else:
         raise ValueError("d must be 'auto', 0, or a positive integer.")
 
+    # Zero-phase correction (only if d > 0)
+    if d_order > 0:
+        coef = diff_coef(d_order)
+        diff_zp = zero_phasing(diff_ts.data, coef)
+        out_ts = tsref(diff_zp, diff_ts)
+        meta["diff_coef"] = coef
+    else:
+        out_ts = diff_ts
+    
     # Inherit attributes and attach metadata
     inherit_ts_attrs(ts_obj, out_ts)
     setattr(out_ts, "diff_meta", meta)
@@ -218,7 +257,6 @@ def Differencing(
 
 # ________________________________________________________________
 # Autoregressive
-
 
 # Estimate AR model coefficients using Burg's method
 def burgar(
@@ -364,6 +402,14 @@ def burgar(
         ar = np.array([])
     var_pred = vars_pred[selected_order]
 
+    # Residuals (convolution-based)
+    if selected_order > 0:
+        a = np.r_[1.0, -ar]
+        resid = np.convolve(x, a, mode="full")[:n_used]
+        resid[:selected_order] = np.nan
+    else:
+        resid = x.copy()
+
     # Comments in burgar() of R source file
     # WE DON'T NEED THIS WHICH TAKES TIME A LOT!
     # if (order) {
@@ -378,6 +424,7 @@ def burgar(
         {
             "order": int(selected_order),
             "ar": ar,
+            "resid": resid,
             "var_pred": var_pred,
             "vars_pred": vars_pred,
             "x_mean": x_mean,
@@ -392,69 +439,6 @@ def burgar(
     )
 
 
-def residual(x: Union[np.ndarray, Sequence[float]], ar: np.ndarray) -> np.ndarray:
-    """
-    Compute zero-phase AR residuals.
-
-    Calculates AR model residuals with zero-phase correction using FFT-based
-    phase adjustment. This function applies an AR filter causally, then corrects
-    for phase distortion in the frequency domain to produce zero-phase residuals.
-
-    Args:
-        x (array-like): Input time series data.
-        ar (np.ndarray): AR coefficients from an AR model fit.
-
-    Returns:
-        np.ndarray: Zero-phase corrected residuals with the same length as `x`.
-            The first `order` and last `order` values are set to NaN where
-            `order = len(ar)`.
-
-    Details:
-        The function performs the following steps:
-        1. Applies causal AR filter: constructs polynomial (1, -ar) and convolves
-        2. Fills NaN values with 0 for FFT computation
-        3. Computes phase response of AR coefficients in frequency domain
-        4. Corrects phase distortion by multiplying FFT of residuals with exp(-i * phase)
-        5. Transforms back to time domain and restores edge NaNs
-
-    See Also:
-        burgar, sar
-    """
-    x = np.asarray(x, dtype=np.float64).ravel()
-    ar = np.asarray(ar, dtype=np.float64).ravel()
-
-    # Construct AR coef vector: 1 - a_1 - a_2 - ...
-    a = np.r_[1, -ar]
-    order = len(ar)
-
-    # Faster than embed-based calculation of residual
-    # Causal convolution (one-sided filter, like R's stats::filter with sides=1)
-    resid = np.convolve(x, a, mode="full")[: len(x)]
-    # Set first `order` values to NaN (edge effect)
-    resid[:order] = np.nan
-
-    # Copy of resid only for FFT input
-    resid_filled = resid.copy()
-    resid_filled[np.isnan(resid_filled)] = 0.0
-
-    # Phase response of AR coefs
-    n = len(x)
-    A_f = np.fft.fft(np.r_[a, np.zeros(n - len(a))])
-    phase_A = np.angle(A_f)
-
-    # Phase correction
-    Y_f = np.fft.fft(resid_filled)
-    Y_fp = Y_f * np.exp(-1j * phase_A)
-    y_p = np.real(np.fft.ifft(Y_fp))
-
-    # Refill NaN values at edges
-    y_p[:order] = np.nan
-    y_p[-order:] = np.nan
-
-    return y_p
-
-
-# Fit a single AR model and return residuals/features
 def sar(
     ts_obj: ts,
     ic: str = "AIC",
@@ -481,14 +465,16 @@ def sar(
     """
     ar_result = burgar(ts_obj.data, ic=ic, order_max=order_max, **kwargs)
     p = ar_result.order
+    resid = ar_result.resid
+    resid_nonan = resid[~np.isnan(resid)]
 
-    # Compute zero-phase residuals using the residual() function
-    resids_zp = residual(ts_obj.data, ar_result.ar)
-    resids_no_na = resids_zp[~np.isnan(resids_zp)]
+    # Zero-phase correction
+    coef = np.r_[1, -ar_result.ar]
+    resid_zp = zero_phasing(resid_nonan, coef)
     new_start = ts_obj.start + p / ts_obj.sampling_freq
-    resids_ts = ts(resids_no_na, start=new_start, sampling_freq=ts_obj.sampling_freq)
-
-    coeff_labels = [f"ar{p}_{i+1}" for i in range(len(ar_result.ar))]
+    resid_ts = ts(resid_zp, start=new_start, sampling_freq=ts_obj.sampling_freq)
+    
+    coeff_labels = [f"ar{p}_{i + 1}" for i in range(len(ar_result.ar))]
     coeff_series = pd.Series(ar_result.ar, index=coeff_labels)
     extra_series = pd.Series(
         {f"ar{p}_var": ar_result.var_pred, f"ar{p}_mean": ar_result.x_mean}
@@ -496,7 +482,7 @@ def sar(
     feature = pd.concat([coeff_series, extra_series])
 
     return Rist(
-        resid=resids_ts,
+        resid=resid_ts,
         feature=feature,
         p_order=p,
         ar_collector="single",
