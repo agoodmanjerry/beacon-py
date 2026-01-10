@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "beacon-py"
-version = "0.0.1"
+version = "0.0.2"
 description = "BEACON: Burst Event Anomaly Clustering and Outlier Notification - A fully data-driven pipeline for detecting unmodeled gravitational wave transients"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "GPL-2.0-or-later"}
+license = "GPL-2.0-or-later"
 authors = [
     {name = "Sangin Kim", email = "kimsanginn@gmail.com"}
 ]
@@ -30,7 +30,6 @@ keywords = [
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -82,7 +81,6 @@ packages = {find = {exclude = ["beacon._burg", "beacon._burg.*"]}}
 
 [tool.setuptools.package-data]
 beacon = []
-#beacon = ["_burg/*.c"]
 
 [tool.black]
 line-length = 88
