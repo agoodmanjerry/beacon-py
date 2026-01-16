@@ -1045,31 +1045,66 @@ def H_diff(f: np.ndarray, fs: float) -> np.ndarray:
     f = np.asarray(f)
     return 1 - np.exp(-1j * 2 * np.pi * f / fs)
 
-
-def H_eoa(f: np.ndarray, q_max: int, fs: float) -> np.ndarray:
+def H_ma(f: np.ndarray, q: int, fs: float) -> np.ndarray:
     """
-    H(f) for EoA (Ensemble of Averages) filter.
+    Single centered MA filter magnitude response.
+    Matches sma() weights exactly.
 
-    H_EoA(f) = (1/q_max) * sum_{q=1}^{q_max} H_MA,q(f)
-
-    Args:
-        f: Frequency array (Hz)
-        q_max: Maximum window size
-        fs: Sampling frequency (Hz)
-
-    Returns:
-        Complex transfer function H(f)
+    Even q: [0.5, 1, 1, ..., 1, 0.5] / q (length q+1)
+    Odd q: [1, 1, ..., 1] / q (length q)
     """
-    f = np.asarray(f)
-    H = np.zeros_like(f, dtype=complex)
+    if q % 2 == 0:
+        # Even: [0.5, 1, 1, ..., 1, 0.5] / q (length q+1)
+        w = np.concatenate(([0.5], np.ones(q - 1), [0.5])) / q
+    else:
+        # Odd: [1, 1, ..., 1] / q (length q)
+        w = np.ones(q) / q
 
-    for q in range(1, q_max + 1):
-        z = np.exp(-1j * 2 * np.pi * f / fs)
-        H_ma_q = (1 / q) * (1 - z**q) / (1 - z + 1e-30)
-        H += H_ma_q
+    omega = 2 * np.pi * f / fs
+    _, H = freqz(w, 1, worN=omega)
 
-    H /= q_max
-    return H
+    return np.abs(H)
+    
+def H_eoa(f: np.ndarray, q_order: Any, fs: float) -> np.ndarray:
+    """
+    Ensemble of Averages magnitude response.
+    H_EoA(f) = (1/K) Σ H_MA,q_k(f)
+    """
+    if len(q_order) == 0:
+        return np.ones_like(f)
+    
+    H_sum = np.zeros_like(f)
+
+    for q in q_order:
+        H_sum += H_ma(f, int(q), fs)
+
+    return H_sum / len(q_order)
+
+
+#def H_eoa(f: np.ndarray, q_max: int, fs: float) -> np.ndarray:
+#    """
+#    H(f) for EoA (Ensemble of Averages) filter.
+#
+#    H_EoA(f) = (1/q_max) * sum_{q=1}^{q_max} H_MA,q(f)
+#
+#    Args:
+#        f: Frequency array (Hz)
+#        q_max: Maximum window size
+#        fs: Sampling frequency (Hz)
+#
+#    Returns:
+#        Complex transfer function H(f)
+#    """
+#    f = np.asarray(f)
+#    H = np.zeros_like(f, dtype=complex)
+#
+#    for q in range(1, q_max + 1):
+#        z = np.exp(-1j * 2 * np.pi * f / fs)
+#        H_ma_q = (1 / q) * (1 - z**q) / (1 - z + 1e-30)
+#        H += H_ma_q
+#
+#    H /= q_max
+#    return H
 
 
 def H_bp(f: np.ndarray, fl: float, fu: float, order: int, fs: float) -> np.ndarray:
@@ -1153,10 +1188,9 @@ def seqarima_variance(seqarima_obj, psd_in=None) -> Rist:
     # Step 2: EoA
     if has_ma:
         q_order = seqarima_obj.ma_meta.q_order
-        q_max = len(q_order) if hasattr(q_order, "__len__") else q_order
-        H_total_sq *= np.abs(H_eoa(f, q_max, fs)) ** 2
-        stages.append(f"eoa (q_max={q_max})")
-        details["q_max"] = q_max
+        H_total_sq *= np.abs(H_eoa(f, q_order, fs)) ** 2
+        stages.append(f"eoa (q_max={q_order})")
+        details["q_order"] = q_order
         details["ma_collector"] = seqarima_obj.ma_meta.ma_collector
 
     # Step 3: BP
