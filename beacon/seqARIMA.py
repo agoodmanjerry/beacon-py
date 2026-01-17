@@ -1051,6 +1051,17 @@ def H_diff(f: np.ndarray, fs: float) -> np.ndarray:
     f = np.asarray(f)
     return 1 - np.exp(-1j * 2 * np.pi * f / fs)
 
+def H_ar(ar_coeffs, f: np.ndarray, fs: float) -> np.ndarray:
+    """AR filter transfer function"""
+    if len(ar_coeffs) == 0:
+        return np.ones_like(f, dtype=complex)
+
+    a_poly = np.r_[1.0, -ar_coeffs]
+    w = 2 * np.pi * f / fs
+    _, H = freqz(a_poly, 1, worN=w)
+
+    return H
+
 def H_ma(f: np.ndarray, q: int, fs: float) -> np.ndarray:
     """
     Single centered MA filter magnitude response.
