@@ -483,6 +483,8 @@ def sar(
 
     return Rist(
         resid=resid_ts,
+        ar_coef=ar_result.ar,
+        var_pred=ar_result.var_pred,
         feature=feature,
         p_order=p,
         ar_collector="single",
@@ -616,13 +618,17 @@ def Autoregressive(
         message_verb(f"|> p={result.p_order} selected!", verb=verbose)
 
     resid = result.resid
-
+    
     # Inherit attributes
     inherit_ts_attrs(ts_obj, resid)
 
     # Attach features to ts object
     meta = Rist(
-        feature=result.feature, p_order=result.p_order, ar_collector=result.ar_collector
+        ar_coef=result.ar_coef,
+        var_pred=result.var_pred,
+        feature=result.feature,
+        p_order=result.p_order,
+        ar_collector=result.ar_collector,
     )
     setattr(resid, "ar_meta", meta)
 
@@ -1063,7 +1069,7 @@ def H_ma(f: np.ndarray, q: int, fs: float) -> np.ndarray:
     omega = 2 * np.pi * f / fs
     _, H = freqz(w, 1, worN=omega)
 
-    return np.abs(H)
+    return H
     
 def H_eoa(f: np.ndarray, q_order: Any, fs: float) -> np.ndarray:
     """
@@ -1073,7 +1079,7 @@ def H_eoa(f: np.ndarray, q_order: Any, fs: float) -> np.ndarray:
     if len(q_order) == 0:
         return np.ones_like(f)
     
-    H_sum = np.zeros_like(f)
+    H_sum = np.zeros_like(f, dtype=complex)
 
     for q in q_order:
         H_sum += H_ma(f, int(q), fs)
