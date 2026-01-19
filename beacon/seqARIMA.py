@@ -26,6 +26,7 @@ from sklearn.decomposition import PCA  # For PCA in EoA smoother
 
 # Scipy
 from scipy.signal import butter, firwin, filtfilt, freqz, hilbert
+from scipy.optimize import brentq
 
 # Custom modules
 from . import _burg as burg  # For AR model estimation via Burg's method
@@ -33,6 +34,7 @@ from .TS import *  # For 'ts' class (time series object)
 from .plot import message_verb  # For printing message if verbose=True
 from .etc import Rist  # For R-style list container
 from .Calc import welch_window  # For Bandpass filter consistent with R version
+
 
 # ================================================================
 
@@ -371,29 +373,30 @@ def burgar(
     if np.any(np.isnan(vars_pred)):
         raise ValueError("zero-variance series")
 
-    # Information criteria
-    ic_fun = {
-        "AIC": AIC,
-        "BIC": BIC,
-        "FPE": FPE,
-        "AICc": AICc,
-        "KIC": KIC,
-        "AKICc": AKICc,
-    }.get(ic)
-
-    if ic_fun is None:
-        raise ValueError(
-            f"Unknown ic: {ic}. Must be one of 'AIC', 'BIC', 'FPE', 'AICc', 'KIC', 'AKICc'"
-        )
-
-    xic = ic_fun(order_max, vars_pred, n_used, demean)
-
-    # Normalize IC
-    mic = np.nanmin(xic)
-    xic_norm = np.where(np.isfinite(mic), xic - mic, np.where(xic == mic, 0, np.inf))
-
-    # Select order (choose order with minimum IC)
-    selected_order = np.flatnonzero(xic_norm == 0)[0]
+    if ic is None:
+        # No model selection, use order_max directly
+        selected_order = order_max
+        xic = None
+        xic_norm = None
+    else:
+        ic_fun = {
+            "AIC": AIC,
+            "BIC": BIC,
+            "FPE": FPE,
+            "AICc": AICc,
+            "KIC": KIC,
+            "AKICc": AKICc,
+        }.get(ic)
+    
+        if ic_fun is None:
+            raise ValueError(
+                f"Unknown ic: {ic}. Must be one of 'AIC', 'BIC', 'FPE',     'AICc', 'KIC', 'AKICc', or None"
+            )
+    
+        xic = ic_fun(order_max, vars_pred, n_used, demean)
+        mic = np.nanmin(xic)
+        xic_norm = np.where(np.isfinite(mic), xic - mic, np.where(xic     == mic, 0, np.inf))
+        selected_order = np.flatnonzero(xic_norm == 0)[0]
 
     # AR coefficients
     if selected_order > 0:
@@ -907,6 +910,45 @@ def MovingAverage(
     return res_ts
 
 
+def calculate_ma_cutoff_seqarima(q):
+    """
+    Calculate the -3dB cutoff frequency for seqARIMA's sma() filter.
+
+    The transfer function is:
+        H(ω) = Σ_{k=0}^{L-1} w[k] · e^{-jωk}
+    where L is the filter length. The -3dB cutoff frequency f_c satisfies:
+        |H(2π f_c)|² = 0.5
+
+    Args:
+        q (int): Moving average order. Must be >= 2.
+
+    Returns:
+        float: Normalized cutoff frequency (0 to 0.5, where 0.5 is Nyquist).
+               Multiply by sampling frequency to get cutoff in Hz.
+
+    Raises:
+        ValueError: If q < 2, since a 1-point MA performs no filtering
+                    (|H(ω)| = 1 for all ω) and has no cutoff frequency.
+    """
+    if q < 2:
+        raise ValueError(
+            f"q must be >= 2. For q=1, the filter weight is [1], "
+            f"giving |H(ω)|=1 for all frequencies (no filtering). "
+            f"The -3dB cutoff is undefined."
+        )
+
+    if q % 2 == 0:
+        w = np.concatenate(([0.5], np.ones(q - 1), [0.5])) / q
+    else:
+        w = np.ones(q) / q
+
+    def mag_sq_minus_half(omega_c):
+        _, H = freqz(w, 1, worN=[omega_c])
+        return np.abs(H[0]) ** 2 - 0.5
+
+    omega_c = brentq(mag_sq_minus_half, 1e-6, np.pi)
+    return omega_c / (2 * np.pi)
+
 # ________________________________________________________________
 # BandPass
 def BandPass(
@@ -1330,10 +1372,10 @@ def var_seqarima(N, fs, d=None, var_pred=None, q=None, fl=None, fu=None):
     return var_filtered
 
 
-def PSD_seqARIMA(N, fs, d=None, ar_coef=None, var_pred=None, q=None, fl=None, fu=None):
+def psd_seqarima(N, fs, d=None, ar_coef=None, var_pred=None, q=None, fl=None, fu=None):
     """
     Estimate noise power spectral density (PSD) by seqARIMA model.
-    In linear time-invariant (LTI) system, filter chains can be expressed as a transfer function in frequency domain. Based on it, PSD from AR-family filter can be defined as:
+    In linear time-invariant (LTI) system, filter chains can be expressed as one transfer function in frequency domain. Based on it, PSD from AR-family filter can be defined as:
 
     S_n(f) = σ^2 / |H(f)|^2
 
@@ -1345,7 +1387,7 @@ def PSD_seqARIMA(N, fs, d=None, ar_coef=None, var_pred=None, q=None, fl=None, fu
         d: Differencing order.
         ar_coef: AR model coefficients.
         var_pred: Estimated variance by AR model.
-        q: EoA order(s).
+        q: MA(EoA) order(s).
         fl: Bandpass filter lower frequency cutoff.
         fu: Bandpass filter upper frequency cutoff.
 
