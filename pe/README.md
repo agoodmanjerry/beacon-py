@@ -9,7 +9,7 @@
     conda activate ./igwn-py310-20240729
     ```
 
-2. Authetication
+2. Authetication  
     Run the following commands:
     ```
     kinit
