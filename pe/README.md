@@ -16,7 +16,7 @@
     export HTGETTOKENOPTS="-a vault.ligo.org -i igwn"
     htgettoken
     ```
-    For any issues, refer to: https://computing.docs.ligo.org/guide/computing-centres/ldg/?h=kerberos#ligo-ssh-kerberos
+    For any issues, refer to: https://computing.docs.ligo.org/guide/auth/
 
 3. Make the following chnages to the `.ini file`.
     ```
