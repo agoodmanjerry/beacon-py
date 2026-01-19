@@ -18,7 +18,7 @@
     ```
     For any issues, refer to: https://computing.docs.ligo.org/guide/computing-centres/ldg/?h=kerberos#ligo-ssh-kerberos
 
-3. Make the following chnages to the .ini file.
+3. Make the following chnages to the `.ini file`.
     ```
     data-dict= {data file path of your choice for each detector}
 	psd-dict= {data file path of your choice for each detector}
@@ -27,11 +27,11 @@
 	outdir= {outdir directory under your home, e.g. /home/albert.einstein/pe/04/S230522n/outdir}
 	webdir= {webdir directory under your home, e.g. /home/albert.einstein/public_html/pe/04/S230522n}
     ```
-    (The .ini file will automatically create the outdir and webdir directories.)  
+    (The `.ini file` will automatically create the outdir and webdir directories.)  
     (The PE results will be available at: https://ldas-jobs.ligo.caltech.edu/~your_username/)<br><br>
       
 
-    You also need to comment out the following fields if they are not None:	
+    You also need to comment out the following arguments if they are not None:	
     ```
     distance-marginalization-lookup-table = {DIR}
 	waveform-arguments-dict
