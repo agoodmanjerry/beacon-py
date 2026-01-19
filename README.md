@@ -160,7 +160,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-## PyCBC Integration
+## PyCBC & GWpy Compatibility
 
 BEACON is fully compatible with PyCBC & GWpy:
 
@@ -213,4 +213,4 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 - This Python implementation is based on the original R version of BEACON
 - Burg's AR estimation algorithm adapted from R's `ar.burg` function
-- Compatible with PyCBC and GWpy for gravitational wave data analysis
+- Covertible to PyCBC and GWpy TimeSeriees

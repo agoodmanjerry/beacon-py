@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "beacon-py"
-version = "0.0.2"
+version = "0.0.3"
 description = "BEACON: Burst Event Anomaly Clustering and Outlier Notification - A fully data-driven pipeline for detecting unmodeled gravitational wave transients"
 readme = "README.md"
 requires-python = ">=3.10"
