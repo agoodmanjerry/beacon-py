@@ -55,16 +55,25 @@ def zero_phasing(data: np.ndarray, coef: np.ndarray) -> np.ndarray:
     coef = np.asarray(coef, dtype=np.float64)
     n = len(data)
 
+    # Edge padding to reduce boundary discontinuity
+    pad_length = min(len(coef) * 10, n // 4)
+
+    # Reflect padding (mirror at edges)
+    data_padded = np.pad(data, pad_length, mode="reflect")
+    n_padded = len(data_padded)
+
     # Phase response of filter
-    H_f = np.fft.fft(np.r_[coef, np.zeros(n - len(coef))])
+    H_f = np.fft.fft(np.r_[coef, np.zeros(n_padded - len(coef))])
     phase = np.angle(H_f)
 
     # Phase correction
-    X_f = np.fft.fft(data)
+    X_f = np.fft.fft(data_padded)
     X_corrected = X_f * np.exp(-1j * phase)
-    out = np.real(np.fft.ifft(X_corrected))
+    out_padded = np.real(np.fft.ifft(X_corrected))
 
-    return out
+    # Remove padding
+    return out_padded[pad_length : pad_length + n]
+
 
 # ________________________________________________________________
 # Differencing (Integrated process)
@@ -395,7 +404,7 @@ def burgar(
     
         xic = ic_fun(order_max, vars_pred, n_used, demean)
         mic = np.nanmin(xic)
-        xic_norm = np.where(np.isfinite(mic), xic - mic, np.where(xic     == mic, 0, np.inf))
+        xic_norm = np.where(np.isfinite(mic), xic - mic, np.where(xic == mic, 0, np.inf))
         selected_order = np.flatnonzero(xic_norm == 0)[0]
 
     # AR coefficients
