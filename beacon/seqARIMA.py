@@ -245,8 +245,8 @@ def Differencing(
         # Explicit no differencing
         diff_ts = ts_obj
         d_order = 0
-        meta = Rist(method=None)
-
+        meta = Rist(method=None, d_order=d_order)
+        
     else:
         raise ValueError("d must be 'auto', 0, or a positive integer.")
 
@@ -1043,14 +1043,14 @@ def BandPass(
 # Final wrapper function for seqARIMA denoising
 def seqarima(
     ts_obj: ts,
-    p: Union[int, Sequence[int]],  # 필수
+    p: Union[int, Sequence[int]],
     d: Union[int, str, None] = None,
     q: Union[int, Sequence[int], None] = None,
     fl: Optional[float] = None,
     fu: Optional[float] = None,
-    ar_collector: str = "median",
-    ma_collector: str = "median",
-    ar_aic: str = "AIC",
+    ar_collector: str = "mean",
+    ma_collector: str = "mean",
+    ar_ic: str = "AIC",
     verbose: bool = True,
 ) -> ts:
     """
@@ -1083,9 +1083,7 @@ def seqarima(
 
     # Step 2: Autoregressive (required)
     message_verb("> (2) Autoregressive stage", verb=verbose)
-    out = Autoregressive(
-        out, p=p, ic=ar_aic, verbose=verbose, ar_collector=ar_collector
-    )
+    out = Autoregressive(out, p=p, ic=ar_ic, verbose=verbose, ar_collector=ar_collector)
 
     # Step 3: Moving Average (optional)
     if q is not None:
