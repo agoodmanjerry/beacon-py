@@ -441,7 +441,7 @@ def burgar(
         }
     )
 
-def pred_resid(x, arcoef):
+def pred_resid(ts_obj, arcoef):
     """
     Predict AR residuals using fitted AR coefficients from other dataset.
     Internally, it also performs `zero_phasing()` as `sar()` does.
@@ -453,18 +453,16 @@ def pred_resid(x, arcoef):
     Returns:
         ts: AR residual time series.
     """
-    data = x.data
+    data = ts_obj.data
     n_used = data.size
-    selected_order = len(arcoef)
+    p_order = len(arcoef)
     a = np.r_[1.0, -arcoef]
-    resid = np.convolve(x, a, mode="full")[:n_used]
-    resid[:selected_order] = np.nan
-    resid_nonan = resid[~np.isnan(resid)]
+    resid = np.convolve(data, a, mode="full")[p_order:n_used]
+    
+    resid_zp = zero_phasing(resid, a)
+    new_start = ts_obj.start + p_order / ts_obj.sampling_freq
 
-    resid_zp = zero_phasing(resid_nonan, a)
-    new_start = x.start + selected_order / x.sampling_freq
-
-    return ts(resid_zp, start=new_start, sampling_freq=x.sampling_freq)
+    return ts(resid_zp, start=new_start, sampling_freq=ts_obj.sampling_freq)
 
 def sar(
     ts_obj: ts,
@@ -1036,8 +1034,8 @@ def BandPass(
 # Final wrapper function for seqARIMA denoising
 def seqarima(
     ts_obj: ts,
+    p: Union[int, Sequence[int]],  # 필수
     d: Union[int, str, None] = None,
-    p: Union[int, Sequence[int], None] = None,
     q: Union[int, Sequence[int], None] = None,
     fl: Optional[float] = None,
     fu: Optional[float] = None,
@@ -1052,44 +1050,40 @@ def seqarima(
 
     Args:
         ts_obj (ts): Input time series.
-        d (int or None): Differencing order (None for auto).
-        p (int or list of int or None): AR order(s).
+        p (int or list of int): AR order(s). Required.
+        d (int or None): Differencing order (None to skip).
         q (int or list of int or None): MA order(s).
         fl (float or None): Bandpass lower frequency bound.
         fu (float or None): Bandpass upper frequency bound.
-        ar_collector (str): Aggregation method for AR stage ('median', 'mean', 'pca').
-        ma_collector (str): Aggregation method for MA stage ('median', 'mean', 'pca').
-        verbose (bool): If True, print progress messages.
+        ar_collector (str): Aggregation method for AR stage.
+        ma_collector (str): Aggregation method for MA stage.
+        ar_aic (str): Information criterion for AR order selection.
+        verbose (bool): Print progress messages.
 
     Returns:
-        ts: Final output time series with stage meta info as attributes:
-            - .diff_meta (from Differencing)
-            - .ar_meta   (from Autoregressive)
-            - .ma_meta   (from MovingAverage)
-            - .bp_meta   (from BandPass)
+        ts: Final output with stage metadata as attributes.
     """
     message_verb("> Running seqarima...", verb=verbose)
 
     out = ts_obj
 
-    # Step 1: Differencing
+    # Step 1: Differencing (optional)
     if d is not None:
         message_verb("> (1) Difference stage", verb=verbose)
         out = Differencing(out, d=d, verbose=verbose)
 
-    # Step 2: Autoregressive
-    if p is not None:
-        message_verb(f"> (2) Autoregressive stage", verb=verbose)
-        out = Autoregressive(
-            out, p=p, ic=ar_aic, verbose=verbose, ar_collector=ar_collector
-        )
+    # Step 2: Autoregressive (required)
+    message_verb("> (2) Autoregressive stage", verb=verbose)
+    out = Autoregressive(
+        out, p=p, ic=ar_aic, verbose=verbose, ar_collector=ar_collector
+    )
 
-    # Step 3: Moving Average
+    # Step 3: Moving Average (optional)
     if q is not None:
         message_verb("> (3) Moving-average stage", verbose)
         out = MovingAverage(out, q=q, verbose=verbose, collector=ma_collector)
 
-    # Step 4: Bandpass Filter
+    # Step 4: Bandpass Filter (optional)
     if (fl or fu) and (fl != 0 or fu != 0):
         message_verb("> (4) Pass filter stage", verb=verbose)
         out = BandPass(out, fl=fl, fu=fu, verbose=verbose)
@@ -1097,84 +1091,164 @@ def seqarima(
     return out
 
 # ________________________________________________________________
+# Parameter extraction
+def extract_seqarima_params(seqarima_obj) -> Rist:
+    """
+    Extract transfer function parameters from seqARIMA result object.
 
+    AR stage is required - raises error if ar_meta is missing.
+
+    Returns Rist with parameters:
+        - fs: sampling frequency
+        - d: differencing order (if diff applied)
+        - ar_coef: AR coefficients
+        - var_pred: AR prediction variance
+        - q_list: EoA window sizes as list (if MA/EoA applied)
+        - fl, fu: bandpass cutoffs (if BP applied)
+        - bp_order: bandpass filter order (if BP applied)
+    """
+    # AR is required
+    if not (hasattr(seqarima_obj, "ar_meta") and seqarima_obj.ar_meta is not None):
+        raise ValueError("AR stage is required. ar_meta not found.")
+
+    params = Rist(
+        fs=seqarima_obj.sampling_freq,
+        ar_coef=seqarima_obj.ar_meta.ar_coef,
+        var_pred=seqarima_obj.ar_meta.var_pred,
+    )
+
+    # Differencing (optional)
+    if hasattr(seqarima_obj, "diff_meta") and seqarima_obj.diff_meta is not None:
+        params["d"] = seqarima_obj.diff_meta.d_order
+
+    # EoA (optional)
+    if hasattr(seqarima_obj, "ma_meta") and seqarima_obj.ma_meta is not None:
+        q = seqarima_obj.ma_meta.q_order
+        params["q_list"] = list(np.atleast_1d(q))
+
+    # Bandpass (optional)
+    if hasattr(seqarima_obj, "bp_meta") and seqarima_obj.bp_meta is not None:
+        fl, fu = seqarima_obj.bp_meta.cutoff
+        params["fl"] = fl
+        params["fu"] = fu
+        params["bp_order"] = getattr(seqarima_obj.bp_meta, "order", 512)
+
+    return params
+
+def has_param(params: Rist, key: str) -> bool:
+    """Check if parameter exists in extracted params."""
+    return key in params._name_to_index
+
+# ________________________________________________________________
 # seqARIMA transfer functions
 # Pipeline: Differencing -> AR filtering -> EoA -> BP filter (filtfilt) -> x_out
-def H_diff(f: np.ndarray, fs: float) -> np.ndarray:
+
+
+def H_diff(f: np.ndarray, fs: float, d: int = 1) -> np.ndarray:
     """
-    H(f) for first-order differencing filter.
+    Transfer function for d-th order differencing filter.
 
-    H_diff(f) = 1 - e^{-j2*pi*f/fs}
-
-    For d-th order differencing, use H_diff(f)^d.
+    H_diff(f) = (1 - e^{-j2πf/fs})^d
 
     Args:
         f: Frequency array (Hz)
         fs: Sampling frequency (Hz)
+        d: Differencing order (default: 1)
 
     Returns:
         Complex transfer function H(f)
     """
     f = np.asarray(f)
-    return 1 - np.exp(-1j * 2 * np.pi * f / fs)
+    return (1 - np.exp(-1j * 2 * np.pi * f / fs)) ** d
 
-def H_ar(ar_coeffs, f: np.ndarray, fs: float) -> np.ndarray:
-    """AR filter transfer function"""
-    if len(ar_coeffs) == 0:
+
+def H_ar(f: np.ndarray, fs: float, ar_coef: np.ndarray) -> np.ndarray:
+    """
+    Transfer function for AR filter.
+
+    H_AR(f) = 1 / A(e^{j2πf/fs}) where A(z) = 1 - Σ a_k z^{-k}
+
+    Args:
+        f: Frequency array (Hz)
+        fs: Sampling frequency (Hz)
+        ar_coef: AR coefficients [a_1, a_2, ..., a_p]
+
+    Returns:
+        Complex transfer function H(f)
+    """
+    if len(ar_coef) == 0:
         return np.ones_like(f, dtype=complex)
 
-    a_poly = np.r_[1.0, -ar_coeffs]
+    a_poly = np.r_[1.0, -ar_coef]
     w = 2 * np.pi * f / fs
     _, H = freqz(a_poly, 1, worN=w)
 
     return H
 
-def H_ma(f: np.ndarray, q: int, fs: float) -> np.ndarray:
-    """
-    Single centered MA filter magnitude response.
-    Matches sma() weights exactly.
 
-    Even q: [0.5, 1, 1, ..., 1, 0.5] / q (length q+1)
-    Odd q: [1, 1, ..., 1] / q (length q)
+def H_ma(f: np.ndarray, fs: float, q: int) -> np.ndarray:
+    """
+    Transfer function for single centered MA filter.
+
+    Matches sma() weights exactly:
+    - Even q: [0.5, 1, 1, ..., 1, 0.5] / q (length q+1)
+    - Odd q:  [1, 1, ..., 1] / q (length q)
+
+    Args:
+        f: Frequency array (Hz)
+        fs: Sampling frequency (Hz)
+        q: MA window size
+
+    Returns:
+        Complex transfer function H(f)
     """
     if q % 2 == 0:
-        # Even: [0.5, 1, 1, ..., 1, 0.5] / q (length q+1)
         w = np.concatenate(([0.5], np.ones(q - 1), [0.5])) / q
     else:
-        # Odd: [1, 1, ..., 1] / q (length q)
         w = np.ones(q) / q
 
     omega = 2 * np.pi * f / fs
     _, H = freqz(w, 1, worN=omega)
 
     return H
-    
-def H_eoa(f: np.ndarray, q_order: Any, fs: float) -> np.ndarray:
+
+
+def H_eoa(f: np.ndarray, fs: float, q_list: list[int]) -> np.ndarray:
     """
-    Ensemble of Averages magnitude response.
+    Transfer function for Ensemble of Averages.
+
     H_EoA(f) = (1/K) Σ H_MA,q_k(f)
-    """
-    if len(q_order) == 0:
-        return np.ones_like(f)
-    
-    H_sum = np.zeros_like(f, dtype=complex)
-
-    for q in q_order:
-        H_sum += H_ma(f, int(q), fs)
-
-    return H_sum / len(q_order)
-
-
-def H_bp(f: np.ndarray, fl: float, fu: float, order: int, fs: float) -> np.ndarray:
-    """
-    H(f) for BP filter (FIR with Welch window).
 
     Args:
         f: Frequency array (Hz)
-        fl: Lower cutoff (Hz)
-        fu: Upper cutoff (Hz)
-        order: Filter order
         fs: Sampling frequency (Hz)
+        q_list: List of MA window sizes [q_1, q_2, ..., q_K]
+
+    Returns:
+        Complex transfer function H(f)
+    """
+    if len(q_list) == 0:
+        return np.ones_like(f, dtype=complex)
+
+    H_sum = np.zeros_like(f, dtype=complex)
+    for q in q_list:
+        H_sum += H_ma(f, fs, int(q))
+
+    return H_sum / len(q_list)
+
+
+def H_bp(
+    f: np.ndarray, fs: float, fl: float, fu: float, order: int = 512
+) -> np.ndarray:
+    """
+    Transfer function for bandpass filter (FIR with Welch window).
+
+    Args:
+        f: Frequency array (Hz)
+        fs: Sampling frequency (Hz)
+        fl: Lower cutoff frequency (Hz)
+        fu: Upper cutoff frequency (Hz)
+        order: Filter order (default: 512)
 
     Returns:
         Complex transfer function H(f)
@@ -1190,108 +1264,85 @@ def H_bp(f: np.ndarray, fl: float, fu: float, order: int, fs: float) -> np.ndarr
     )
     filt = filt * welch_window(numtaps)
 
-    w_normalized = 2 * np.pi * np.asarray(f) / fs
-    _, H = freqz(filt, worN=w_normalized)
+    w = 2 * np.pi * np.asarray(f) / fs
+    _, H = freqz(filt, worN=w)
 
     return H
 
+
 # seqARIMA variance
-def seqarima_variance(seqarima_obj, psd_in=None) -> Rist:
-    fs = seqarima_obj.sampling_freq
+def seqarima_variance(seqarima_obj) -> Rist:
+    """
+    Compute filtered noise variance from seqARIMA result.
+
+    AR stage is required for white noise assumption.
+
+    Args:
+        seqarima_obj: seqarima result object with ar_meta attribute.
+
+    Returns:
+        Rist with var_filtered, stages, details.
+    """
+    p = extract_seqarima_params(seqarima_obj)
     n_freq = 10000
 
-    has_diff = hasattr(seqarima_obj, "diff_meta") and seqarima_obj.diff_meta is not None
-    has_ar = hasattr(seqarima_obj, "ar_meta") and seqarima_obj.ar_meta is not None
-    has_ma = hasattr(seqarima_obj, "ma_meta") and seqarima_obj.ma_meta is not None
-    has_bp = hasattr(seqarima_obj, "bp_meta") and seqarima_obj.bp_meta is not None
-
-    if has_bp:
-        fl, fu = seqarima_obj.bp_meta.cutoff
-        f = np.linspace(fl, fu, n_freq)
+    # 주파수 범위
+    if has_param(p, "fl"):
+        f = np.linspace(p.fl, p.fu, n_freq)
     else:
-        f = np.linspace(1e-6, fs / 2, n_freq)
+        f = np.linspace(1e-6, p.fs / 2, n_freq)
     df = f[1] - f[0]
 
     stages = []
-    details = {"sampling_freq": fs}
+    details = Rist(sampling_freq=p.fs, var_pred=p.var_pred)
     H_total_sq = np.ones_like(f)
 
-    # Step 1: Diff + AR (or PSD)
-    if has_ar:
-        var_ar = seqarima_obj.ar_meta.var_pred
-        p = seqarima_obj.ar_meta.p_order
-        details["var_ar"] = var_ar
-        details["p"] = p
+    # Step 1: Diff (AR absorbs diff, so only track for logging)
+    if has_param(p, "d"):
+        details["d"] = p.d
+        stages.append(f"diff (d={p.d}, absorbed by AR)")
 
-        if has_diff:
-            d = seqarima_obj.diff_meta.d_order
-            details["d"] = d
-            stages.append(f"diff (d={d}, absorbed)")
-
-        stages.append("ar (whitened)")
-    else:
-        # If there is no AR process, the noise variance can not be simplified by a constant.
-        # Therefore, raw PSD is necessary to integrate transfer function over frequency range.
-        if psd_in is None:
-            raise ValueError("'psd_in' required when AR is not applied.")
-        S_in = np.interp(f, psd_in.freqs(), np.asarray(psd_in))
-        stages.append("psd (colored noise)")
-
-        if has_diff:
-            d = seqarima_obj.diff_meta.d_order
-            H_total_sq *= np.abs(H_diff(f, fs)) ** (2 * d)
-            stages.append(f"diff (d={d})")
-            details["d"] = d
+    stages.append("ar (whitened)")
 
     # Step 2: EoA
-    if has_ma:
-        q_order = seqarima_obj.ma_meta.q_order
-        H_total_sq *= np.abs(H_eoa(f, q_order, fs)) ** 2
-        stages.append(f"eoa (q_max={q_order})")
-        details["q_order"] = q_order
-        details["ma_collector"] = seqarima_obj.ma_meta.ma_collector
+    if has_param(p, "q_list"):
+        H_total_sq *= np.abs(H_eoa(f, p.fs, p.q_list)) ** 2
+        stages.append(f"eoa (q={p.q_list})")
+        details["q_list"] = p.q_list
 
     # Step 3: BP
-    if has_bp:
-        fl, fu = seqarima_obj.bp_meta.cutoff
-        bp_order = getattr(seqarima_obj.bp_meta, "order", 512)
-        H_total_sq *= np.abs(H_bp(f, fl, fu, bp_order, fs)) ** 4
-        stages.append(f"bp ({fl}-{fu} Hz)")
-        details["fl"] = fl
-        details["fu"] = fu
+    if has_param(p, "fl"):
+        bp_order = p.bp_order if has_param(p, "bp_order") else 512
+        H_total_sq *= np.abs(H_bp(f, p.fs, p.fl, p.fu, bp_order)) ** 4
+        stages.append(f"bp ({p.fl}-{p.fu} Hz)")
+        details["fl"] = p.fl
+        details["fu"] = p.fu
         details["bp_order"] = bp_order
 
-    # Final
-    if has_ar:
-        var_filtered = var_ar * (2 / fs) * np.sum(H_total_sq) * df
-    else:
-        var_filtered = np.sum(H_total_sq * S_in) * df
+    # Final variance
+    var_filtered = p.var_pred * (2 / p.fs) * np.sum(H_total_sq) * df
 
-    return Rist(
-        {"var_filtered": var_filtered, "stages": Rist(stages), "details": Rist(details)}
-    )
+    return Rist(var_filtered=var_filtered, stages=Rist(stages), details=details)
+
 
 # Signal-to-noise ratio
-def envelope_snr(seqarima_obj, psd_in=None) -> np.ndarray:
+def envelope_snr(seqarima_obj) -> np.ndarray:
     """
     Compute envelope SNR time series from seqarima result.
 
-    SNR(t) = A^2(t) / (2 * var_filtered)
+    SNR(t) = A(t) / sqrt(2 * var_filtered)
 
     where A(t) is the envelope (magnitude of analytic signal).
-
-    The denominator 2 * var_filtered normalizes so that E[SNR] = 1 for noise only,
-    based on chi-squared distribution with 2 DOF.
+    Normalized so E[SNR] = 1 for noise only (chi-squared with 2 DOF).
 
     Args:
-        seqarima_obj: seqarima result object with .data attribute
-        psd_in: Input PSD (fs object). Required only if AR is not applied.
+        seqarima_obj: seqarima result object with ar_meta attribute.
 
     Returns:
-        np.ndarray: SNR time series
+        ts: SNR time series with variance_result attribute.
     """
-    result = seqarima_variance(seqarima_obj, psd_in)
-    sigma2 = result["var_filtered"]
+    result = seqarima_variance(seqarima_obj)
+    sigma2 = result.var_filtered
 
     analytic_signal = hilbert(seqarima_obj.data)
     envelope = np.abs(analytic_signal)
@@ -1299,104 +1350,117 @@ def envelope_snr(seqarima_obj, psd_in=None) -> np.ndarray:
     snr_ts = np.sqrt(envelope**2 / (2 * sigma2))
     snr_ts = tsref(snr_ts, seqarima_obj)
     snr_ts.variance_result = result
+
     return snr_ts
 
 
 # ________________________________________________________________
-# PSD estimation
+# Combined transfer function and PSD estimation
 
-def H_seqarima(N, fs, d=None, ar_coef=None, q=None, fl=None, fu=None):
+def H_seqarima(f: np.ndarray, params: Rist) -> np.ndarray:
     """
-    Calculate transfer function H(f) from seqARIMA model parameters.
+    Combined transfer function H(f) for seqARIMA pipeline.
 
     Args:
-        N: Number of data points of raw data.
-        fs: Sampling frequency.
-        d: Differencing order.
-        ar_coef: AR model coefficients.
-        q: EoA order(s).
-        fl: Bandpass filter lower frequency cutoff.
-        fu: Bandpass filter upper frequency cutoff.
+        f: Frequency array (Hz)
+        params: Rist containing seqARIMA parameters.
+
+    Required params:
+        - fs: Sampling frequency (Hz)
+
+    Optional params:
+        - d: Differencing order
+        - ar_coef: AR coefficients
+        - q_list: EoA window sizes
+        - fl, fu: Bandpass cutoffs (Hz)
+        - bp_order: Bandpass filter order (default: 512)
 
     Returns:
-        - frequency sample array.
-        - Transfer function value array with respect to the sample frequencies.
+        Complex transfer function H(f)
     """
-    freqs = np.fft.rfftfreq(N, 1 / fs)
-    H_out = np.ones_like(freqs, dtype=complex)
+    fs = params.fs
+    H_out = np.ones_like(f, dtype=complex)
 
-    if d is not None:
-        H_out *= H_diff(freqs, fs) ** d
-    if ar_coef is not None:
-        H_out *= H_ar(ar_coef, freqs, fs)
-    if q is not None:
-        H_out *= H_eoa(freqs, q, fs)
-    if fl is not None and fu is not None:
-        H_out *= H_bp(freqs, fl, fu, 512, fs) ** 2
+    if has_param(params, "d"):
+        H_out *= H_diff(f, fs, params.d)
+    if has_param(params, "ar_coef"):
+        H_out *= H_ar(f, fs, params.ar_coef)
+    if has_param(params, "q_list"):
+        H_out *= H_eoa(f, fs, params.q_list)
+    if has_param(params, "fl") and has_param(params, "fu"):
+        bp_order = params.bp_order if has_param(params, "bp_order") else 512
+        H_out *= H_bp(f, fs, params.fl, params.fu, bp_order) ** 2  # filtfilt
 
-    return freqs, H_out
+    return H_out
 
 
-def var_seqarima(N, fs, d=None, var_pred=None, q=None, fl=None, fu=None):
+def var_seqarima(f: np.ndarray, params: Rist) -> float:
     """
-    Calculate noise variance estimated by seqARIMA model parameters.
+    Noise variance after seqARIMA filtering.
 
     Args:
-        N: Number of data points of raw data.
-        fs: Sampling frequency.
-        d: Differencing order.
-        var_pred: Estimated variance by AR model.
-        q: EoA order(s).
-        fl: Bandpass filter lower frequency cutoff.
-        fu: Bandpass filter upper frequency cutoff.
+        f: Frequency array (Hz)
+        params: Rist containing seqARIMA parameters.
+
+    Required params:
+        - fs: Sampling frequency (Hz)
+        - var_pred: AR prediction variance
+
+    Optional params:
+        - d: Differencing order
+        - q_list: EoA window sizes
+        - fl, fu: Bandpass cutoffs (Hz)
+        - bp_order: Bandpass filter order (default: 512)
 
     Returns:
-        noise variance
+        Filtered noise variance
     """
-    freqs = np.fft.rfftfreq(N, 1 / fs)
-    df = freqs[1] - freqs[0]
-    H_total_sq = np.ones_like(freqs)
+    fs = params.fs
+    var_pred = params.var_pred
+    df = f[1] - f[0]
+    bw = fs / 2
+    H_total_sq = np.ones_like(f)
 
-    Bw = fs / 2
-    if d is not None:
-        H_total_sq *= np.abs(H_diff(freqs, fs)) ** (2 * d)
-    if q is not None:
-        H_total_sq *= np.abs(H_eoa(freqs, q, fs)) ** 2
-    if fl is not None and fu is not None:
-        H_total_sq *= np.abs(H_bp(freqs, fl, fu, 512, fs)) ** 4
-        Bw = fu - fl
-
+    if has_param(params, "d"):
+        H_total_sq *= np.abs(H_diff(f, fs, params.d)) ** 2
+    if has_param(params, "q_list"):
+        H_total_sq *= np.abs(H_eoa(f, fs, params.q_list)) ** 2
+    if has_param(params, "fl") and has_param(params, "fu"):
+        bp_order = params.bp_order if has_param(params, "bp_order") else 512
+        H_total_sq *= np.abs(H_bp(f, fs, params.fl, params.fu, bp_order)) ** 4
+        bw = params.fu - params.fl
+    
     var_filtered = var_pred * (2 / fs) * np.sum(H_total_sq) * df
-    var_filtered /= Bw
+    var_filtered /= bw
 
     return var_filtered
 
 
-def psd_seqarima(N, fs, d=None, ar_coef=None, var_pred=None, q=None, fl=None, fu=None):
+def psd_seqarima(f: np.ndarray, params: Rist) -> np.ndarray:
     """
-    Estimate noise power spectral density (PSD) by seqARIMA model.
-    In linear time-invariant (LTI) system, filter chains can be expressed as one transfer function in frequency domain. Based on it, PSD from AR-family filter can be defined as:
+    Noise PSD estimated by seqARIMA model.
 
-    S_n(f) = σ^2 / |H(f)|^2
-
-    where σ^2 is the variance computed by `var_seqarima()`, and H(f) is the transfer function by `H_seqarima()`.
+    S_n(f) = σ² / |H(f)|²
 
     Args:
-        N: Number of data points of raw data.
-        fs: Sampling frequency.
-        d: Differencing order.
-        ar_coef: AR model coefficients.
-        var_pred: Estimated variance by AR model.
-        q: MA(EoA) order(s).
-        fl: Bandpass filter lower frequency cutoff.
-        fu: Bandpass filter upper frequency cutoff.
+        f: Frequency array (Hz)
+        params: Rist containing seqARIMA parameters.
+
+    Required params:
+        - fs: Sampling frequency (Hz)
+        - var_pred: AR prediction variance
+        - ar_coef: AR coefficients
+
+    Optional params:
+        - d: Differencing order
+        - q_list: EoA window sizes
+        - fl, fu: Bandpass cutoffs (Hz)
+        - bp_order: Bandpass filter order (default: 512)
 
     Returns:
-        - frequency sample array.
-        - PSD array with respect to the sample frequencies.
+        PSD array S(f)
     """
-    freqs, Hf = H_seqarima(N, fs, d, ar_coef, q, fl, fu)
-    var = var_seqarima(N, fs, d, var_pred, q, fl, fu)
+    Hf = H_seqarima(f, params)
+    var = var_seqarima(f, params)
 
-    psd = var / np.abs(Hf) ** 2
-    return freqs, psd
+    return var / np.abs(Hf) ** 2
